@@ -24,11 +24,13 @@ Cada `.md` contém a tabela de dados do ato (tipo, número, origem, assunto, eme
 ## Uso
 
 ```bash
-pip install -r requirements.txt
+py -m pip install -r requirements.txt
 ```
 
+(No Linux/macOS use `python3` no lugar de `py`.)
+
 ```bash
-python3 extrai_legislacao.py
+py extrai_legislacao.py
 ```
 
 Opções:
@@ -41,7 +43,19 @@ Opções:
 | `--pausa S` | segundos entre requisições (padrão 0,3) |
 | `--barra C` | caractere que substitui `/` no nome do arquivo |
 
-O script pode ser interrompido (Ctrl+C) e executado de novo: os atos já salvos ficam registrados em `.baixados.json` em cada pasta e são pulados. Atos em que o servidor falhar mesmo após as novas tentativas são listados no final; basta rodar de novo.
+### Atos já baixados são pulados
+
+Antes de começar cada situação, o script lê os `.md` que já estão na pasta e identifica cada ato pelo link da linha **Fonte** (`…/atos/documento/<id>`). Esses atos são pulados sem nenhuma consulta ao site. Por isso dá para interromper (Ctrl+C) e rodar de novo quantas vezes quiser, e funciona mesmo que os arquivos tenham sido copiados de outro computador. Para baixar um ato de novo, basta apagar o arquivo dele.
+
+Atos em que o servidor falhar mesmo após as novas tentativas são listados no final; basta rodar de novo.
+
+### Barra de progresso
+
+```
+[██████████████████████··················]  56.5%  96/170 | novos 2 | pulados 94 | erros 0 | resta ~1min10s
+```
+
+Mostra o total de atos da situação, quantos foram baixados agora (novos), quantos já estavam na pasta (pulados), os erros e uma estimativa do tempo que falta (calculada só sobre os atos que ainda faltam baixar).
 
 ## Como funciona
 

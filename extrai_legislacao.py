@@ -29,6 +29,7 @@ O script pode ser interrompido e executado de novo: os atos já baixados
 """
 
 import argparse
+import shutil
 import json
 import re
 import sys
@@ -36,9 +37,16 @@ import time
 import unicodedata
 from pathlib import Path
 
-import requests
-from bs4 import BeautifulSoup
-from markdownify import markdownify
+try:
+    import requests
+    from bs4 import BeautifulSoup
+    from markdownify import markdownify
+except ModuleNotFoundError as _e:
+    sys.exit(
+        f"Falta a biblioteca '{_e.name}'. Instale as dependências com:\n"
+        "    py -m pip install requests beautifulsoup4 markdownify\n"
+        "(no Linux/macOS: python3 -m pip install requests beautifulsoup4 markdownify)"
+    )
 
 BASE = "https://www.tjpr.jus.br"
 PAGINA = BASE + "/legislacao-atos-normativos"
@@ -70,6 +78,84 @@ TAMANHO_PAGINA = 100  # o servidor não devolve mais que 100 por página
 MAX_NOME = 200  # caracteres do nome do arquivo (o limite dos sistemas é 255 bytes)
 
 
+# Barra de progresso ativa (se houver); avisos passam por ela para não embaralhar a tela.
+_progresso = None
+
+
+def avisar(msg: str):
+    if _progresso is not None:
+        _progresso.escrever(msg, erro=True)
+    else:
+        print(msg, file=sys.stderr, flush=True)
+
+
+class Progresso:
+    """Barra de progresso simples, sem dependências:
+    [██████████··········]  52,3%  4093/7821 | novos 120 | pulados 3970 | erros 3 | resta ~2h04min
+    """
+
+    def __init__(self, total: int, rotulo: str, ja_na_pasta: int = 0):
+        self.total = max(total, 1)
+        self.rotulo = rotulo
+        self.ja_na_pasta = ja_na_pasta
+        self.feitos = self.novos = self.pulados = self.erros = 0
+        self.tempo_baixando = 0.0
+        self._ultimo_desenho = 0.0
+
+    @staticmethod
+    def _hms(seg: float) -> str:
+        seg = int(seg)
+        h, r = divmod(seg, 3600)
+        m, s = divmod(r, 60)
+        return f"{h}h{m:02d}min" if h else (f"{m}min{s:02d}s" if m else f"{s}s")
+
+    def _linha(self) -> str:
+        frac = min(self.feitos / self.total, 1.0)
+        largura = shutil.get_terminal_size((100, 20)).columns
+        info = (
+            f" {frac * 100:5.1f}%  {self.feitos}/{self.total}"
+            f" | novos {self.novos} | pulados {self.pulados} | erros {self.erros}"
+        )
+        if self.novos and self.feitos < self.total:
+            media = self.tempo_baixando / (self.novos + self.erros)
+            # só os que ainda faltam baixar contam para o tempo (os já salvos são pulados na hora)
+            faltam = self.total - self.ja_na_pasta - self.novos - self.erros
+            faltam = max(0, min(faltam, self.total - self.feitos))
+            info += f" | resta ~{self._hms(media * faltam)}"
+        n = max(10, min(40, largura - len(info) - 4))
+        cheio = int(frac * n)
+        return f"[{'█' * cheio}{'·' * (n - cheio)}]{info}"[: largura - 1]
+
+    def desenhar(self, forcar=False):
+        agora = time.monotonic()
+        if forcar or agora - self._ultimo_desenho >= 0.1:
+            self._ultimo_desenho = agora
+            largura = shutil.get_terminal_size((100, 20)).columns
+            sys.stdout.write("\r" + self._linha().ljust(largura - 1))
+            sys.stdout.flush()
+
+    def escrever(self, msg: str, erro=False):
+        """Imprime uma linha acima da barra e redesenha a barra."""
+        largura = shutil.get_terminal_size((100, 20)).columns
+        sys.stdout.write("\r" + " " * (largura - 1) + "\r")
+        sys.stdout.flush()
+        print(msg, file=sys.stderr if erro else sys.stdout, flush=True)
+        self.desenhar(forcar=True)
+
+    def avancar(self, novo=False, pulado=False, erro=False, segundos=0.0):
+        self.feitos += 1
+        self.novos += novo
+        self.pulados += pulado
+        self.erros += erro
+        self.tempo_baixando += segundos
+        self.desenhar(forcar=novo or erro)
+
+    def fechar(self):
+        self.desenhar(forcar=True)
+        sys.stdout.write("\n")
+        sys.stdout.flush()
+
+
 class Cliente:
     def __init__(self, pausa: float, tentativas: int = 5):
         self.s = requests.Session()
@@ -90,7 +176,7 @@ class Cliente:
                 return r
             except requests.RequestException as e:
                 espera = 2 ** (i + 1)
-                print(f"   ! erro ({e}); nova tentativa em {espera}s", file=sys.stderr)
+                avisar(f"   ! erro de conexão ({e}); nova tentativa em {espera}s")
                 time.sleep(espera)
         raise RuntimeError(f"falha após {self.tentativas} tentativas: {url}")
 
@@ -241,58 +327,110 @@ def montar_md(m: dict, id_doc) -> str:
     return "\n".join(linhas)
 
 
+RE_FONTE = re.compile(r"^\| Fonte \| .*?/atos/documento/(\d+)", re.M)
+
+
+def atos_na_pasta(pasta: Path) -> dict:
+    """Lê os .md já existentes na pasta e devolve {id do ato: nome do arquivo}.
+
+    O id vem da linha "| Fonte | .../atos/documento/<id> |" que o script grava em
+    todo arquivo; assim os atos são reconhecidos mesmo sem o .baixados.json, ou se
+    os arquivos tiverem sido copiados de outra máquina ou renomeados.
+    """
+    achados = {}
+    for arq in pasta.glob("*.md"):
+        try:
+            with open(arq, encoding="utf-8", errors="replace") as f:
+                inicio = f.read(30000)  # a tabela de dados fica no começo do arquivo
+        except OSError:
+            continue
+        m = RE_FONTE.search(inicio)
+        if m:
+            achados[m.group(1)] = arq.name
+    return achados
+
+
 def processar(cli: Cliente, situacao: str, saida: Path, barra: str, limite: int | None):
+    global _progresso
     rotulo = SITUACOES[situacao]
     pasta = saida / rotulo
     pasta.mkdir(parents=True, exist_ok=True)
     arq_controle = pasta / ".baixados.json"
-    baixados = json.loads(arq_controle.read_text("utf-8")) if arq_controle.exists() else {}
-    usados = set(baixados.values())
 
-    pagina, total, vistos, novos, erros = 1, None, 0, 0, []
     print(f"\n=== Situação: {rotulo} ===")
-    while True:
-        out = cli.pesquisar(situacao, pagina)
-        total = out.get("total", 0) if total is None else total
-        regs = out.get("registros") or []
-        if pagina == 1:
-            paginas = -(-total // TAMANHO_PAGINA)
-            print(f"{total} registro(s) em {paginas} página(s) de {TAMANHO_PAGINA}")
-        if not regs:
-            break
-        print(f"-- página {pagina}")
-        for reg in regs:
-            if limite is not None and vistos >= limite:
-                break
-            vistos += 1
-            id_doc = str(reg["id"])
-            if id_doc in baixados and (pasta / baixados[id_doc]).exists():
-                continue
-            try:
-                m = cli.materia(id_doc)
-            except Exception as e:  # noqa: BLE001
-                print(f"   ! ato {id_doc}: {e}", file=sys.stderr)
-                erros.append(id_doc)
-                continue
-            num, ano = numero_e_ano(m, reg)
-            orgao = limpar(m.get("orgao")) or str(reg.get("orgao", ""))
-            assunto = limpar(m.get("assunto")) or limpar(m.get("descricao")) or "Sem assunto"
-            nome = nome_arquivo(num, orgao, ano, assunto, barra)
-            if nome in usados:  # dois atos com mesmo número/órgão/ano/assunto
-                nome = nome[:-3] + f" ({id_doc}).md"
-            (pasta / nome).write_text(montar_md(m, id_doc), encoding="utf-8")
-            baixados[id_doc] = nome
-            usados.add(nome)
-            novos += 1
-            print(f"   {nome}")
-            if novos % 20 == 0:
-                arq_controle.write_text(json.dumps(baixados, ensure_ascii=False, indent=0), "utf-8")
-        arq_controle.write_text(json.dumps(baixados, ensure_ascii=False, indent=0), "utf-8")
-        if (limite is not None and vistos >= limite) or pagina * TAMANHO_PAGINA >= total:
-            break
-        pagina += 1
+    print(f"Verificando arquivos já existentes em {pasta} ...", flush=True)
+    baixados = {}
+    if arq_controle.exists():
+        try:
+            baixados = json.loads(arq_controle.read_text("utf-8"))
+        except ValueError:
+            baixados = {}
+    # só vale o que existe de fato na pasta; os arquivos lidos têm prioridade
+    baixados = {k: v for k, v in baixados.items() if (pasta / v).exists()}
+    baixados.update(atos_na_pasta(pasta))
+    usados = set(baixados.values())
+    print(f"{len(baixados)} ato(s) já estão na pasta e serão pulados.")
 
-    print(f"Concluído ({rotulo}): {novos} novo(s), {len(baixados)} na pasta {pasta}")
+    def salvar_controle():
+        arq_controle.write_text(json.dumps(baixados, ensure_ascii=False, indent=0), "utf-8")
+
+    pagina, total, vistos, erros = 1, None, 0, []
+    prog = None
+    try:
+        while True:
+            out = cli.pesquisar(situacao, pagina)
+            regs = out.get("registros") or []
+            if total is None:
+                total = out.get("total", 0)
+                paginas = -(-total // TAMANHO_PAGINA)
+                print(f"{total} registro(s) no site, em {paginas} página(s) de {TAMANHO_PAGINA}")
+                alvo = total if limite is None else min(total, limite)
+                prog = _progresso = Progresso(alvo, rotulo, ja_na_pasta=len(baixados))
+                prog.desenhar(forcar=True)
+            if not regs:
+                break
+            for reg in regs:
+                if limite is not None and vistos >= limite:
+                    break
+                vistos += 1
+                id_doc = str(reg["id"])
+                if id_doc in baixados:
+                    prog.avancar(pulado=True)
+                    continue
+                t0 = time.monotonic()
+                try:
+                    m = cli.materia(id_doc)
+                except Exception as e:  # noqa: BLE001
+                    prog.escrever(f"   ! ato {id_doc}: {e}", erro=True)
+                    erros.append(id_doc)
+                    prog.avancar(erro=True, segundos=time.monotonic() - t0)
+                    continue
+                num, ano = numero_e_ano(m, reg)
+                orgao = limpar(m.get("orgao")) or str(reg.get("orgao", ""))
+                assunto = limpar(m.get("assunto")) or limpar(m.get("descricao")) or "Sem assunto"
+                nome = nome_arquivo(num, orgao, ano, assunto, barra)
+                if nome in usados:  # dois atos com mesmo número/órgão/ano/assunto
+                    nome = nome[:-3] + f" ({id_doc}).md"
+                (pasta / nome).write_text(montar_md(m, id_doc), encoding="utf-8")
+                baixados[id_doc] = nome
+                usados.add(nome)
+                prog.avancar(novo=True, segundos=time.monotonic() - t0)
+                if prog.novos % 20 == 0:
+                    salvar_controle()
+            salvar_controle()
+            if (limite is not None and vistos >= limite) or pagina * TAMANHO_PAGINA >= total:
+                break
+            pagina += 1
+    finally:
+        salvar_controle()
+        if prog is not None:
+            prog.fechar()
+        _progresso = None
+
+    print(
+        f"Concluído ({rotulo}): {prog.novos if prog else 0} novo(s), "
+        f"{prog.pulados if prog else 0} pulado(s), {len(baixados)} ato(s) na pasta {pasta}"
+    )
     if erros:
         print(f"Atos com erro (rode de novo para tentar outra vez): {', '.join(erros)}")
     return erros
@@ -313,11 +451,20 @@ def main():
     )
     a = ap.parse_args()
 
+    for fluxo in (sys.stdout, sys.stderr):
+        try:
+            fluxo.reconfigure(errors="replace")
+        except (AttributeError, ValueError):
+            pass
+
     cli = Cliente(pausa=a.pausa)
     cli.abrir_pagina()
     houve_erro = False
-    for s in a.situacao:
-        houve_erro |= bool(processar(cli, s, a.saida, a.barra, a.limite))
+    try:
+        for s in a.situacao:
+            houve_erro |= bool(processar(cli, s, a.saida, a.barra, a.limite))
+    except KeyboardInterrupt:
+        sys.exit("\nInterrompido. O que já foi salvo será pulado na próxima execução.")
     sys.exit(1 if houve_erro else 0)
 
 
