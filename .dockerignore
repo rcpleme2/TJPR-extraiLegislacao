@@ -1,0 +1,10 @@
+.git
+atos/
+base/
+dados/
+copilot/
+modelos/
+**/__pycache__
+*.sqlite
+*.npz
+*.zip

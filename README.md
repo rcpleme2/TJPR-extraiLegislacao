@@ -100,3 +100,9 @@ Opções:
 | `--buscar "termos"` | pesquisa na base já gerada, ex.: `py consolida_atos.py --buscar "guarda compartilhada"` |
 
 Pode ser rodado a cada atualização: a base é recriada (leva segundos) e só os arquivos novos ou alterados são copiados para `separados/`. Se um mesmo ato estiver em duas pastas de situação, fica a versão baixada por último. A pasta `separados/` é derivada: não edite arquivos nela.
+
+---
+
+## Painel público (Google Cloud Run)
+
+O site de consulta pública, com atualização diária automática, pesquisa por palavras, por tema e por significado, e classificação temática (Copilot para os atos antigos, Claude Haiku para os novos), está descrito em **[PAINEL.md](PAINEL.md)**.

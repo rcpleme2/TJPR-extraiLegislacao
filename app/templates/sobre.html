@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block titulo %}Sobre · Atos normativos do TJPR{% endblock %}
+{% block conteudo %}
+<article class="sobre">
+<h1 class="titulo-pagina">Sobre esta consulta</h1>
+<p>Esta página reúne os atos normativos e administrativos publicados no
+  <a href="https://www.tjpr.jus.br/legislacao-atos-normativos" rel="noopener">portal do Tribunal de Justiça do Paraná</a>
+  nas situações <em>vigente</em>, <em>republicado</em> e <em>reveiculado</em>. A base é verificada uma vez por dia:
+  atos novos são incluídos e os que mudaram de situação (por exemplo, revogados) são atualizados.</p>
+<p>Ela não substitui a fonte oficial: confira sempre o texto no portal do TJPR, pelo link que aparece em cada ato.</p>
+
+<h2>Como pesquisar</h2>
+<ul>
+  <li><strong>Palavras exatas:</strong> encontra os atos que contêm todas as palavras digitadas (sem diferenciar acentos). Use aspas para uma frase exata, como <code>"registro de imóveis"</code>. Digitar um número, como <code>397/2023</code>, traz primeiro o ato com esse número.</li>
+  <li><strong>Por significado:</strong> compara o sentido da pesquisa com o de cada ato, e encontra atos relacionados mesmo sem as mesmas palavras (ex.: "trabalho remoto" e "teletrabalho"). Mostra os 50 atos mais próximos.</li>
+  <li><strong>Combinada</strong> (padrão): junta as duas.</li>
+  <li><strong>Temas e filtros:</strong> origem, tipo, situação, tema e ano podem ser combinados com qualquer pesquisa.</li>
+</ul>
+
+<h2>Temas</h2>
+<p>A classificação por tema é feita automaticamente por modelos de linguagem e pode conter erros.
+  Os atos mais antigos foram classificados com o Microsoft Copilot; os atos novos são classificados com o Claude.
+  O nome de quem classificou aparece ao passar o mouse sobre o tema na página do ato.</p>
+
+{% if info %}
+<h2>Situação da base</h2>
+<dl class="ficha">
+  <div><dt>Atos na base</dt><dd>{{ "{:,}".format(info.total).replace(",", ".") }}</dd></div>
+  <div><dt>Última atualização</dt><dd>{{ info.atualizado or "—" }}</dd></div>
+  {% for sit, n in rel.por_situacao or [] %}<div><dt>{{ sit }}</dt><dd>{{ n }}</dd></div>{% endfor %}
+  {% for origem, n in rel.classificados or [] %}<div><dt>Classificados ({{ 'Copilot' if origem == 'copilot' else origem }})</dt><dd>{{ n }}</dd></div>{% endfor %}
+  {% if rel.site and rel.site.novos is defined %}<div><dt>Na última verificação</dt><dd>{{ rel.site.novos }} novo(s), {{ rel.site.alterados }} alterado(s)</dd></div>{% endif %}
+  <div><dt>Pesquisa por significado</dt><dd>{{ "disponível" if semantica_pronta else "carregando" }} ({{ modelo }})</dd></div>
+</dl>
+{% endif %}
+</article>
+{% endblock %}

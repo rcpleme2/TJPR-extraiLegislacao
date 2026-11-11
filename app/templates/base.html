@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block titulo %}Atos normativos do TJPR{% endblock %}</title>
+<meta name="description" content="Consulta pública aos atos normativos e administrativos do Tribunal de Justiça do Paraná, com pesquisa por palavras, por tema e por significado.">
+<link rel="stylesheet" href="/static/estilo.css">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%23154c63'/%3E%3Cpath d='M9 8h14M9 14h14M9 20h9' stroke='white' stroke-width='3' stroke-linecap='round'/%3E%3C/svg%3E">
+</head>
+<body>
+<header class="topo">
+  <div class="largura topo-conteudo">
+    <a class="marca" href="/">
+      <span class="marca-sinal" aria-hidden="true"></span>
+      <span><strong>Atos normativos</strong><small>Tribunal de Justiça do Paraná</small></span>
+    </a>
+    <nav aria-label="Principal">
+      <a href="/">Pesquisar</a>
+      <a href="/temas">Temas</a>
+      <a href="/sobre">Sobre</a>
+    </nav>
+  </div>
+</header>
+<main class="largura">
+{% block conteudo %}{% endblock %}
+</main>
+<footer class="rodape">
+  <div class="largura">
+    <p>Consulta não oficial, montada a partir do
+      <a href="https://www.tjpr.jus.br/legislacao-atos-normativos" rel="noopener">portal de atos normativos do TJPR</a>.
+      Confira sempre o texto no site oficial.
+      {% if info and info.atualizado %}Base atualizada em {{ info.atualizado }}{% if info.total %} · {{ "{:,}".format(info.total).replace(",", ".") }} atos{% endif %}.{% endif %}
+    </p>
+  </div>
+</footer>
+</body>
+</html>

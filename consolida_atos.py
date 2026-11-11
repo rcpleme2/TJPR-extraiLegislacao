@@ -98,7 +98,14 @@ def palavras_chave(assunto: str) -> list[str]:
 
 
 def ler_ato(arq: Path) -> dict | None:
-    texto_arquivo = arq.read_text(encoding="utf-8", errors="replace")
+    ato = analisar_md(arq.read_text(encoding="utf-8", errors="replace"))
+    if ato is not None:
+        ato["_mtime"] = arq.stat().st_mtime
+    return ato
+
+
+def analisar_md(texto_arquivo: str) -> dict | None:
+    """Extrai os dados de um .md gerado por extrai_legislacao.py (None se não tiver a linha Fonte)."""
     linhas = texto_arquivo.splitlines()
     dados = {c: "" for c in CAMPOS_TABELA.values()}
     anexos, refs = [], []
@@ -154,7 +161,7 @@ def ler_ato(arq: Path) -> dict | None:
         "referencias": refs,
         "texto": texto,
         "caracteres_texto": len(texto),
-        "_mtime": arq.stat().st_mtime,
+        "_mtime": 0.0,
     }
 
 
