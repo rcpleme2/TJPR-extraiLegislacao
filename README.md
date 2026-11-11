@@ -65,3 +65,38 @@ A página de pesquisa monta a lista via JavaScript, chamando dois serviços JSON
 - `…p_p_resource_id=/obterMateria` — o detalhe de cada ato (`detalheID=<id>`), o mesmo conteúdo exibido em `/legislacao-atos-normativos/-/atos/documento/<id>`.
 
 Tempo aproximado (novembro de 2026): Vigente ≈ 7.800 atos (≈ 4 h), Republicado 7, Reveiculado 170 (≈ 5 min).
+
+---
+
+## Consolidação e separação (`consolida_atos.py`)
+
+Depois de baixar, rode:
+
+```bash
+py consolida_atos.py
+```
+
+Ele lê todos os `.md` de `atos/<situação>/` (sem internet, sem alterar os originais) e gera em `base/`:
+
+| Arquivo | Conteúdo |
+|---|---|
+| `atos.sqlite` | base única com todos os atos: metadados, texto integral, palavras-chave em tabela própria e pesquisa de texto completo que ignora acentos. É a fonte de dados para o painel. |
+| `atos.csv` | os metadados em planilha (separador `;`, abre direto no Excel); não inclui o texto integral. |
+| `atos.jsonl` | um ato por linha, com o texto integral (útil para gerar embeddings / pesquisa semântica). |
+| `separados/` | cópia dos `.md` em pastas, por padrão `Origem/Ano` (ex.: `separados/CORREGEDORIA-GERAL DA JUSTIÇA/2016/`). |
+
+Campos extraídos de cada ato: id, situação, tipo, tipo de ato, número, número sequencial, ano, origem, documento, assunto, **palavras-chave** (o "1.Revogação 2.Presidência…" do assunto separado em termos), ementa, data do diário (AAAA-MM-DD), número do diário, link da fonte, anexos, referências e o texto.
+
+Ao final mostra um resumo (atos por situação, anos, tipos, origens e palavras-chave mais frequentes).
+
+Opções:
+
+| Opção | Efeito |
+|---|---|
+| `--por ano,origem` | outra organização das pastas; combine `origem`, `ano`, `tipo`, `situacao` |
+| `--limpar` | apaga e refaz `separados/` (use depois de mudar `--por`) |
+| `--sem-separar` | só gera a base, sem copiar arquivos |
+| `--entrada PASTA` / `--saida PASTA` | pastas de entrada (padrão `atos`) e saída (padrão `base`) |
+| `--buscar "termos"` | pesquisa na base já gerada, ex.: `py consolida_atos.py --buscar "guarda compartilhada"` |
+
+Pode ser rodado a cada atualização: a base é recriada (leva segundos) e só os arquivos novos ou alterados são copiados para `separados/`. Se um mesmo ato estiver em duas pastas de situação, fica a versão baixada por último. A pasta `separados/` é derivada: não edite arquivos nela.
