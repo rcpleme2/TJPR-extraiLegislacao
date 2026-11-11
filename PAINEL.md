@@ -62,10 +62,19 @@ Cria, na região de São Paulo: o bucket privado, as três contas de serviço co
 
 No seu computador, compacte a pasta `atos` (com as subpastas `Vigente`, `Republicado` e `Reveiculado`) em **atos.zip**. No Windows: botão direito na pasta → **Enviar para → Pasta compactada**.
 
-Envie o arquivo para a pasta `entrada/` do bucket: no console, **Cloud Storage → Buckets → ID_DO_PROJETO-atos-tjpr → Criar pasta** `entrada` → **Fazer upload**. Pelo Cloud Shell, depois de enviar o zip para ele:
+O `atos.zip` está no seu computador, não no Cloud Shell. Envie-o para a pasta `entrada/` do bucket de um destes jeitos:
+
+- **Pelo console (mais simples):** **Cloud Storage → Buckets → ID_DO_PROJETO-atos-tjpr → Criar pasta** `entrada` → abra a pasta → **Fazer upload → Fazer upload de arquivos** → escolha o `atos.zip`.
+- **Pelo Cloud Shell:** primeiro envie o arquivo para o Cloud Shell (menu **⋮ → Fazer upload**; ele vai para a sua pasta pessoal, `~`) e depois copie para o bucket:
 
 ```bash
-gcloud storage cp atos.zip gs://$(gcloud config get-value project)-atos-tjpr/entrada/
+gcloud storage cp ~/atos.zip gs://$(gcloud config get-value project)-atos-tjpr/entrada/
+```
+
+Para conferir que o arquivo chegou ao bucket:
+
+```bash
+gcloud storage ls -l gs://$(gcloud config get-value project)-atos-tjpr/entrada/
 ```
 
 Rode a primeira atualização sem esperar o agendamento:
