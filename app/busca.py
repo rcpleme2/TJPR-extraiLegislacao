@@ -21,16 +21,30 @@ class Resultado:
     aviso: str = ""
 
 
+PALAVRAS_VAZIAS = {
+    "a", "o", "as", "os", "e", "de", "da", "do", "das", "dos", "em", "no", "na", "nos", "nas", "um", "uma",
+    "para", "por", "com", "ao", "aos", "à", "às", "que", "se",
+}
+
+
 def consulta_fts(texto: str) -> str:
-    """Transforma o texto digitado numa consulta FTS segura: palavras e "frases entre aspas" (todas obrigatórias)."""
+    """Transforma o texto digitado numa consulta FTS segura: palavras e "frases entre aspas" (todas obrigatórias).
+
+    Palavras como "de" e "para" fora de aspas são ignoradas (estão em quase todos os atos e só
+    poluiriam o destaque); dentro de aspas a frase é mantida inteira.
+    """
     partes = re.findall(r'"([^"]+)"|(\S+)', texto)
-    termos = []
+    termos, vazias = [], []
     for frase, palavra in partes:
         t = (frase or palavra).replace('"', "").strip()
         t = re.sub(r"[^\w\s/.-]", " ", t).strip()
-        if t:
+        if not t:
+            continue
+        if palavra and t.lower() in PALAVRAS_VAZIAS:
+            vazias.append(f'"{t}"')
+        else:
             termos.append(f'"{t}"')
-    return " ".join(termos)
+    return " ".join(termos or vazias)
 
 
 def _where(filtros: dict) -> tuple[str, list]:

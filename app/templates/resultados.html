@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+{% block titulo %}{% if par.q %}{{ par.q }} · {% endif %}Atos normativos do TJPR{% endblock %}
+{% block conteudo %}
+<h1 class="sr">Resultados da pesquisa</h1>
+<form class="filtros" action="/" method="get" aria-label="Filtros">
+  {% if par.q %}<input type="hidden" name="q" value="{{ par.q }}">{% endif %}
+  {% if par.modo != "inteligente" %}<input type="hidden" name="modo" value="{{ par.modo }}">{% endif %}
+  {% set n_ativos = par.filtros.values() | select | list | length %}
+  <details class="painel-filtros" {% if n_ativos %}open{% endif %}>
+  <summary>Filtrar{% if n_ativos %} ({{ n_ativos }} {{ "filtro aplicado" if n_ativos == 1 else "filtros aplicados" }}){% endif %}</summary>
+  <div class="selects">
+    {% macro seletor(campo, rotulo_todos, itens, rotulo=None) %}
+      <label class="sr" for="f-{{ campo }}">{{ rotulo_todos }}</label>
+      <select id="f-{{ campo }}" name="{{ campo }}" {% if par.filtros[campo] %}class="ativo"{% endif %}>
+        <option value="">{{ rotulo_todos }}</option>
+        {% set achou = namespace(v=False) %}
+        {% for item in itens %}
+          {% set valor = item[0]|string %}
+          {% if valor == par.filtros[campo] %}{% set achou.v = True %}{% endif %}
+          <option value="{{ valor }}" {% if valor == par.filtros[campo] %}selected{% endif %}>{{ rotulo(item) if rotulo else valor }} ({{ "{:,}".format(item[-1]).replace(",", ".") }})</option>
+        {% endfor %}
+        {% if par.filtros[campo] and not achou.v %}<option value="{{ par.filtros[campo] }}" selected>{{ par.filtros[campo] }}</option>{% endif %}
+      </select>
+    {% endmacro %}
+    {{ seletor("tema", "Todos os temas", res.facetas.tema, rotulo_tema) }}
+    {{ seletor("origem", "Todas as origens", res.facetas.origem, rotulo_origem) }}
+    {{ seletor("tipo", "Todos os tipos", res.facetas.tipo) }}
+    {{ seletor("situacao", "Todas as situações", res.facetas.situacao, rotulo_situacao) }}
+    {{ seletor("ano", "Todos os anos", res.facetas.ano) }}
+    <button type="submit" class="botao sem-js">Filtrar</button>
+  </div>
+  </details>
+  {% if par.q %}
+  <div class="modos" aria-label="Tipo de pesquisa">
+    <span>Pesquisa:</span>
+    {% for valor, rotulo in modos.items() %}
+    <a href="{{ url(modo=valor) }}" {% if res.modo == valor %}aria-current="true"{% endif %}>{{ rotulo }}</a>
+    {% endfor %}
+  </div>
+  {% endif %}
+</form>
+
+{% if res.aviso %}<p class="aviso">{{ res.aviso }}</p>{% endif %}
+
+<div class="resumo">
+  <span>
+  {% if res.total == 0 %}Nenhum ato encontrado
+  {% elif par.q and res.modo == "significado" %}<strong>{{ res.total }}</strong> atos mais próximos do sentido de “{{ par.q }}”
+  {% else %}<strong>{{ "{:,}".format(res.total).replace(",", ".") }}</strong> {{ "ato" if res.total == 1 else "atos" }}{% if par.q %} para “{{ par.q }}”{% else %}, do mais recente ao mais antigo{% endif %}{% endif %}
+  </span>
+  {% if filtros_ativos %}<a href="{{ url(origem='', tipo='', situacao='', tema='', ano='') }}">Limpar filtros</a>{% endif %}
+</div>
+
+{% if res.total == 0 %}
+<div class="vazio">
+  <h2>Nada encontrado</h2>
+  <p>{% if filtros_ativos %}Tente <a href="{{ url(origem='', tipo='', situacao='', tema='', ano='') }}">remover os filtros</a>{% if par.q %} ou {% endif %}{% endif %}{% if par.q and res.modo == "palavras" %}<a href="{{ url(modo='significado') }}">pesquisar pelo significado</a>, que encontra atos sem as mesmas palavras{% elif par.q %}use menos palavras ou outros termos{% endif %}.</p>
+</div>
+{% else %}
+<ol class="resultados">
+  {% for it in res.itens %}{% include "_resultado.html" %}{% endfor %}
+</ol>
+{% endif %}
+
+{% if paginas > 1 %}
+<nav class="paginacao" aria-label="Páginas">
+  <span>{% if par.pagina > 1 %}<a href="{{ url(pagina=par.pagina - 1) }}">Anteriores</a>{% endif %}</span>
+  <span>Página {{ par.pagina }} de {{ paginas }}</span>
+  <span>{% if par.pagina < paginas and par.pagina < 500 %}<a href="{{ url(pagina=par.pagina + 1) }}">Próximos</a>{% endif %}</span>
+</nav>
+{% endif %}
+{% endblock %}

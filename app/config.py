@@ -27,10 +27,16 @@ MODELOS_DIR = os.environ.get("MODELOS_DIR", str(RAIZ / "modelos"))
 # Classificação dos atos novos (somente no job; o site público não recebe a chave).
 MODELO_CLASSIFICACAO = os.environ.get("MODELO_CLASSIFICACAO", "claude-haiku-5-5")
 MAX_CLASSIFICACOES = int(os.environ.get("MAX_CLASSIFICACOES", "100"))  # por execução
+# O Claude classifica só atos novos publicados nos últimos N dias; os mais antigos ficam para o Copilot.
+DIAS_CLAUDE = int(os.environ.get("DIAS_CLAUDE", "60"))
 
 # Atualização diária
-SITUACOES = [s.strip() for s in os.environ.get("SITUACOES", "VIGENTE,REPUBLICADO,REVEICULADO").split(",") if s.strip()]
+# TODAS = sem filtro de situação (inclui os ~30 mil atos "sem situação definida", revogados etc.).
+# Também aceita uma lista, ex.: VIGENTE,REPUBLICADO,REVEICULADO
+SITUACOES = [s.strip() for s in os.environ.get("SITUACOES", "TODAS").split(",") if s.strip()]
 MAX_NOVOS = int(os.environ.get("MAX_NOVOS", "3000"))           # atos baixados por execução
+CONCORRENCIA = int(os.environ.get("CONCORRENCIA", "4"))       # downloads simultâneos do TJPR
+CHECKPOINT = int(os.environ.get("CHECKPOINT", "2000"))        # salva a base a cada N atos baixados
 MAX_REVISOES = int(os.environ.get("MAX_REVISOES", "300"))      # atos que mudaram de situação, por execução
 PAUSA = float(os.environ.get("PAUSA", "0.3"))                  # segundos entre requisições ao TJPR
 

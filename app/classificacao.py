@@ -10,6 +10,7 @@ import json
 import os
 import re
 import unicodedata
+from datetime import date, timedelta
 
 from . import banco, config
 
@@ -120,10 +121,13 @@ def classificar_novos(con, temas: list[dict], log=print) -> dict:
     """Classifica com o Claude os atos novos ainda sem tema. Sem chave configurada, não faz nada."""
     res = {"classificados": 0, "pendentes": 0, "erros": 0}
     # só os atos trazidos pela atualização diária; os da carga inicial são classificados pelo Copilot
+    # Atos antigos baixados agora (complemento da base) também ficam para o Copilot.
+    desde = (date.today() - timedelta(days=config.DIAS_CLAUDE)).isoformat()
     pendentes = con.execute(
         """SELECT id, tipo, numero, origem, documento, ementa, assunto, texto FROM atos
-           WHERE inclusao = 'diario' AND id NOT IN (SELECT id FROM ato_temas)
-           ORDER BY data_diario DESC"""
+           WHERE inclusao = 'diario' AND data_diario >= ? AND id NOT IN (SELECT id FROM ato_temas)
+           ORDER BY data_diario DESC""",
+        (desde,),
     ).fetchall()
     res["pendentes"] = len(pendentes)
     if not pendentes:

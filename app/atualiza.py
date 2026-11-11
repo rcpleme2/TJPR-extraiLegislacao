@@ -19,7 +19,8 @@ import json
 import sys
 import time
 import zipfile
-from concurrent.futures import ThreadPoolExecutor
+import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import PurePosixPath
 
 import consolida_atos
@@ -98,32 +99,40 @@ def importar_classificacoes(con, arm, temas) -> int:
 
 # ------------------------------------------------------------------ site do TJPR
 
-def _salvar_ato_do_site(con, arm, cli, id_ato: int, registro: dict) -> str:
-    m = cli.materia(id_ato)
+_local = threading.local()
+
+
+def _cliente() -> "extrai.Cliente":
+    """Um cliente (sessão HTTP) por thread."""
+    if getattr(_local, "cli", None) is None:
+        _local.cli = extrai.Cliente(pausa=config.PAUSA)
+        _local.cli.abrir_pagina()
+    return _local.cli
+
+
+def _baixar_ato(id_ato: int, registro: dict):
+    """Executado em paralelo: baixa o detalhe e monta o .md (não mexe na base)."""
+    m = _cliente().materia(id_ato)
     md = extrai.montar_md(m, id_ato)
     ato = consolida_atos.analisar_md(md)
     if ato is None:
         raise RuntimeError("resposta sem dados do ato")
-    rotulo = extrai.SITUACOES.get(str(m.get("situacao") or "").upper(), str(m.get("situacao") or "Sem situação"))
+    sit = banco.normalizar_situacao(m.get("situacao"))
+    rotulo = extrai.SITUACOES.get(sit, sit.capitalize())
     num, ano = extrai.numero_e_ano(m, registro)
     orgao = extrai.limpar(m.get("orgao")) or str(registro.get("orgao", ""))
     assunto = extrai.limpar(m.get("assunto")) or extrai.limpar(m.get("descricao")) or "Sem assunto"
     nome = extrai.nome_arquivo(num, orgao, ano, assunto, "∕")
     ato["pasta_situacao"] = rotulo
     ato["arquivo"] = f"{rotulo}/{nome}"
-    resultado = banco.gravar_ato(con, ato, "diario")
-    if resultado != "igual":
-        arm.enviar_texto(md, f"{config.PREFIXO_ATOS}{rotulo}/{nome}")
-    return resultado
+    return ato, md
 
 
-def verificar_site(con, arm, max_novos: int) -> dict:
-    res = {"novos": 0, "alterados": 0, "erros": 0, "no_site": 0}
-    cli = extrai.Cliente(pausa=config.PAUSA)
-    cli.abrir_pagina()
-
+def listar_site(cli) -> tuple[dict, bool]:
+    """Lista os atos do site. Com SITUACOES=TODAS (padrão), pesquisa sem filtro de situação."""
+    situacoes = [""] if "TODAS" in [s.upper() for s in config.SITUACOES] else config.SITUACOES
     no_site, completo = {}, True
-    for sit in config.SITUACOES:
+    for sit in situacoes:
         pagina, total, vistos = 1, None, 0
         while True:
             out = cli.pesquisar(sit, pagina)
@@ -132,13 +141,25 @@ def verificar_site(con, arm, max_novos: int) -> dict:
             for r in regs:
                 no_site[int(r["id"])] = r
             vistos += len(regs)
+            if pagina % 50 == 0:
+                log(f"   listagem: {vistos}/{total}")
             if not regs or pagina * extrai.TAMANHO_PAGINA >= total:
                 break
             pagina += 1
-        log(f"Site: {sit} tem {total} ato(s); {vistos} listados")
+        log(f"Site: {sit or 'todas as situações'}: {total} ato(s); {vistos} listados")
         if vistos < total:
             completo = False
+    return no_site, completo
+
+
+def verificar_site(con, arm, max_novos: int, salvar_parcial) -> dict:
+    res = {"novos": 0, "alterados": 0, "erros": 0, "no_site": 0}
+    todas = "TODAS" in [s.upper() for s in config.SITUACOES]
+    no_site, completo = listar_site(_cliente())
     res["no_site"] = len(no_site)
+
+    def sit_lista(i):
+        return banco.normalizar_situacao(no_site[i].get("situacao"))
 
     na_base, vista_antes = {}, {}
     for r in con.execute("SELECT id, situacao, situacao_lista FROM atos"):
@@ -147,37 +168,58 @@ def verificar_site(con, arm, max_novos: int) -> dict:
     novos = [i for i in no_site if i not in na_base]
     # compara com a situação que a listagem mostrou da última vez: o site às vezes mostra uma situação
     # na lista e outra no detalhe, e sem isso o mesmo ato seria baixado de novo todo dia
-    mudaram = [i for i in no_site if i in na_base and (no_site[i].get("situacao") or "") != (vista_antes[i] or "")]
-    # atos que estavam numa situação acompanhada e saíram dela (ex.: foram revogados);
+    mudaram = [i for i in no_site if i in na_base and sit_lista(i) != banco.normalizar_situacao(vista_antes[i])]
+    # atos que sumiram da listagem (ou, sem TODAS, saíram das situações acompanhadas);
     # só confiável se as listagens vieram completas
-    sairam = [i for i, s in na_base.items() if i not in no_site and s in config.SITUACOES] if completo else []
-    log(f"{len(novos)} novo(s), {len(mudaram)} com situação alterada, {len(sairam)} que saíram das situações acompanhadas")
+    if not completo:
+        sairam = []
+    elif todas:
+        sairam = [i for i in na_base if i not in no_site]
+    else:
+        sairam = [i for i, s in na_base.items() if i not in no_site and s in config.SITUACOES]
+    log(f"{len(novos)} novo(s), {len(mudaram)} com situação alterada, {len(sairam)} fora da listagem")
 
     fila = [(i, no_site[i]) for i in novos[:max_novos]]
     fila += [(i, no_site.get(i, {"id": i})) for i in (mudaram + sairam)[: config.MAX_REVISOES]]
     falharam = set()
-    for k, (id_ato, reg) in enumerate(fila, 1):
-        try:
-            r = _salvar_ato_do_site(con, arm, cli, id_ato, reg)
-        except Exception as e:  # noqa: BLE001
-            log(f"   ! ato {id_ato}: {e}")
-            res["erros"] += 1
-            falharam.add(id_ato)
-            continue
-        if r == "novo":
-            res["novos"] += 1
-        elif r == "alterado":
-            res["alterados"] += 1
-        if k % 50 == 0:
-            log(f"   {k}/{len(fila)}")
-            con.commit()
+    inicio = time.monotonic()
+    with ThreadPoolExecutor(config.CONCORRENCIA) as baixar, ThreadPoolExecutor(8) as enviar:
+        futuros = {baixar.submit(_baixar_ato, i, reg): i for i, reg in fila}
+        envios = []
+        for k, fut in enumerate(as_completed(futuros), 1):
+            id_ato = futuros[fut]
+            try:
+                ato, md = fut.result()
+                r = banco.gravar_ato(con, ato, "diario")
+            except Exception as e:  # noqa: BLE001
+                log(f"   ! ato {id_ato}: {e}")
+                res["erros"] += 1
+                falharam.add(id_ato)
+                continue
+            if r != "igual":
+                envios.append(enviar.submit(arm.enviar_texto, md, f"{config.PREFIXO_ATOS}{ato['arquivo']}"))
+            if r == "novo":
+                res["novos"] += 1
+            elif r == "alterado":
+                res["alterados"] += 1
+            if k % 200 == 0:
+                ritmo = k / max(time.monotonic() - inicio, 1)
+                log(f"   {k}/{len(fila)} ({ritmo:.1f} atos/s, faltam ~{(len(fila) - k) / ritmo / 60:.0f} min)")
+                con.commit()
+            if k % config.CHECKPOINT == 0:
+                log("   salvando progresso no armazenamento ...")
+                salvar_parcial()
+        for f in envios:
+            try:
+                f.result()
+            except Exception as e:  # noqa: BLE001
+                log(f"   ! falha ao gravar .md no armazenamento: {e}")
     if len(novos) > max_novos:
         log(f"   limite de {max_novos} atos novos por execução; o restante vem nas próximas")
     revisados = {i for i, _ in fila} - falharam
     con.executemany(
         "UPDATE atos SET situacao_lista = ? WHERE id = ?",
-        [(no_site[i].get("situacao"), i) for i in no_site
-         if i in revisados or (i in na_base and i not in mudaram)],
+        [(sit_lista(i), i) for i in no_site if i in revisados or (i in na_base and i not in mudaram)],
     )
     return res
 
@@ -216,9 +258,15 @@ def main():
     relatorio["classificacoes_importadas"] = importar_classificacoes(con, arm, temas)
     con.commit()
 
+    def salvar_parcial():
+        """Grava a base no armazenamento no meio de uma execução longa (permite retomar)."""
+        banco.reconstruir_fts(con)
+        con.commit()
+        arm.enviar(caminho_base, config.OBJ_BASE)
+
     if not a.sem_site:
         try:
-            relatorio["site"] = verificar_site(con, arm, a.max_novos)
+            relatorio["site"] = verificar_site(con, arm, a.max_novos, salvar_parcial)
         except Exception as e:  # noqa: BLE001  (o restante da atualização continua)
             log(f"! Falha ao consultar o site do TJPR: {e}")
             relatorio["site"] = {"erro": str(e)}

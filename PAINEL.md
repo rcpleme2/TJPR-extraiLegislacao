@@ -117,22 +117,36 @@ Gera a pasta `copilot` com `lote_001.csv`, `lote_002.csv`, …, `temas.csv` e **
 gcloud run jobs execute atualiza-atos-tjpr --region southamerica-east1
 ```
 
-Depois que a base estiver no ar, para exportar só os atos que ainda não têm tema, baixe `atos.sqlite` do bucket e rode `py exporta_para_copilot.py --base atos.sqlite`.
+Com a base completa (cerca de 44 mil atos), o melhor é exportar a partir dela: baixe `atos.sqlite` do bucket (Cloud Storage → bucket → `atos.sqlite` → Baixar) e rode `py exporta_para_copilot.py --base atos.sqlite`, que exporta só os atos que ainda não têm tema. Com lotes de 150 são cerca de 300 arquivos; teste quantos atos o Copilot aguenta por vez e ajuste com `--tamanho-lote`.
+
+O Claude classifica sozinho apenas os atos **publicados nos últimos 60 dias** (`DIAS_CLAUDE`). Atos antigos que o job baixar do portal ficam sem tema até a planilha do Copilot ser importada.
 
 **Os temas** ficam em `temas.json`. Ajuste a lista **antes** de começar a classificação com o Copilot: Copilot e Claude usam a mesma lista. Se mudar depois, rode `bash deploy/implantar.sh` para publicar a nova lista.
 
 ### Atualizar o código
 
-Depois de qualquer mudança no repositório:
+Depois de qualquer mudança no repositório, no Cloud Shell, dentro da pasta `tjpr-extrailegislacao`:
+
+```bash
+git pull
+```
 
 ```bash
 bash deploy/implantar.sh
 ```
 
+## Todos os atos, não só os vigentes
+
+O portal do TJPR tem cerca de 44 mil atos, mas só 13 mil têm alguma situação (vigente, revogado, alterado etc.); os outros ~31 mil aparecem como "sem situação definida" e não são encontrados por nenhum filtro de situação. Por isso o job lista o portal **sem filtro de situação** (`SITUACOES=TODAS`, o padrão) e inclui todos.
+
+Na primeira execução depois dessa mudança, o job baixa os ~36 mil atos que faltam: cerca de 3 horas de download (4 conexões simultâneas com o portal) e mais 1 a 2 horas para preparar a pesquisa por significado. A cada 2.000 atos ele salva o progresso no bucket; se a execução for interrompida, a próxima continua de onde parou. Nas execuções diárias seguintes, a listagem completa leva uns 5 minutos.
+
+Para voltar a acompanhar só algumas situações, rode `deploy/implantar.sh` com `SITUACOES=VIGENTE,REPUBLICADO,REVEICULADO` no lugar de `SITUACOES=TODAS`.
+
 ## Proteção contra abuso e custos
 
 - **Chave da API:** só existe no Secret Manager e no job. O site público não a recebe; nenhuma ação de visitante gera chamada à API do Claude. Limite de gastos no workspace da Anthropic e teto de 100 classificações por execução.
-- **Site:** no máximo 3 instâncias (`--max-instances 3`), o que limita o custo mesmo sob ataque; 30 pesquisas por minuto por endereço IP; sem login, sem formulários que gravem dados, com política de segurança de conteúdo restrita.
+- **Site:** 4 GB de memória por instância (a base completa ocupa ~600 MB e fica em memória), no máximo 3 instâncias (`--max-instances 3`), o que limita o custo mesmo sob ataque; 30 pesquisas por minuto por endereço IP; sem login, sem formulários que gravem dados, com política de segurança de conteúdo restrita.
 - **Bucket:** privado, com acesso público bloqueado. O site lê; só o job escreve.
 - **Job:** não tem URL pública; só o agendador (conta própria) pode iniciá-lo.
 

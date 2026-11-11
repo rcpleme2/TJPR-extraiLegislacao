@@ -45,7 +45,7 @@ gcloud builds submit --region="$REGIAO" --tag "$IMAGEM" .
 echo "== Site público"
 gcloud run deploy "$SERVICO" --image "$IMAGEM" --region "$REGIAO" \
   --service-account "$SA_SITE" --allow-unauthenticated \
-  --memory 2Gi --cpu 1 --concurrency 20 --min-instances 0 --max-instances 3 \
+  --memory 4Gi --cpu 1 --concurrency 20 --min-instances 0 --max-instances 3 \
   --timeout 60 --cpu-boost \
   --set-env-vars "BUCKET=${BUCKET},INTERVALO_RECARGA=600,BUSCAS_POR_MINUTO=30"
 
@@ -60,8 +60,8 @@ else
 fi
 gcloud run jobs deploy "$JOB" --image "$IMAGEM" --region "$REGIAO" \
   --service-account "$SA_JOB" --command python --args="-m,app.atualiza" \
-  --memory 4Gi --cpu 2 --task-timeout 6h --max-retries 1 --tasks 1 --parallelism 1 \
-  --set-env-vars "BUCKET=${BUCKET},MAX_CLASSIFICACOES=100" "${SEGREDO_FLAG[@]}"
+  --memory 8Gi --cpu 2 --task-timeout 12h --max-retries 1 --tasks 1 --parallelism 1 \
+  --set-env-vars "BUCKET=${BUCKET},MAX_CLASSIFICACOES=100,SITUACOES=TODAS,MAX_NOVOS=60000" "${SEGREDO_FLAG[@]}"
 
 echo "== Agendamento diário"
 gcloud run jobs add-iam-policy-binding "$JOB" --region "$REGIAO" \

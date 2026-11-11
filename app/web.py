@@ -136,7 +136,11 @@ async def cabecalhos_seguranca(request: Request, call_next):
 # ------------------------------------------------------------------ utilidades de modelo
 
 def realce(trecho: str) -> Markup:
-    return Markup(str(escape(trecho)).replace("\u0002", "<mark>").replace("\u0003", "</mark>"))
+    """Destaca os termos encontrados e tira restos de Markdown (quebras com barra, negrito) do trecho."""
+    t = re.sub(r"\\(?=\s|$)", " ", trecho or "")
+    t = re.sub(r"[*_]{1,3}(?=\S)|(?<=\S)[*_]{1,3}", "", t)
+    t = re.sub(r"\s+", " ", t)
+    return Markup(str(escape(t)).replace("\u0002", "<mark>").replace("\u0003", "</mark>"))
 
 
 def data_br(iso: str | None) -> str:
@@ -146,8 +150,41 @@ def data_br(iso: str | None) -> str:
     return iso or ""
 
 
+_MINUSCULAS = {"da", "de", "do", "das", "dos", "e", "a", "o", "em", "para", "por", "com", "na", "no"}
+_SITUACOES = {"SEMEFEITO": "Sem efeito", banco.SEM_SITUACAO: "Sem situação definida"}
+
+
+def nome_proprio(texto: str | None) -> str:
+    """CORREGEDORIA-GERAL DA JUSTIÇA -> Corregedoria-Geral da Justiça (só para textos todo em maiúsculas)."""
+    t = texto or ""
+    if not t or t != t.upper():
+        return t
+    palavras = []
+    for k, p in enumerate(t.lower().split(" ")):
+        if k and p in _MINUSCULAS:
+            palavras.append(p)
+        else:
+            palavras.append("-".join(x[:1].upper() + x[1:] for x in p.split("-")))
+    return " ".join(palavras)
+
+
+def rotulo_sit(sit: str | None) -> str:
+    s = (sit or "").upper()
+    return _SITUACOES.get(s, s.capitalize())
+
+
+def classe_sit(sit: str | None) -> str:
+    return re.sub(r"[^a-z]", "", (sit or "").lower())
+
+
 modelos.env.filters["realce"] = realce
 modelos.env.filters["data_br"] = data_br
+modelos.env.filters["nome_proprio"] = nome_proprio
+modelos.env.filters["rotulo_sit"] = rotulo_sit
+modelos.env.filters["classe_sit"] = classe_sit
+modelos.env.globals["rotulo_tema"] = lambda item: item[1]
+modelos.env.globals["rotulo_origem"] = lambda item: nome_proprio(item[0])
+modelos.env.globals["rotulo_situacao"] = lambda item: rotulo_sit(item[0])
 
 
 def parametros(request: Request) -> dict:
@@ -176,7 +213,7 @@ def construtor_url(par: dict):
 
 
 def contexto(request: Request, **extra) -> dict:
-    return {"request": request, "atualizado": getattr(request.state, "atualizado", ""), **extra}
+    return {"request": request, "busca_no_topo": False, "pagina_atual": "", **extra}
 
 
 def info_base(con) -> dict:
@@ -200,28 +237,36 @@ def indisponivel(request: Request):
 @app.get("/", response_class=HTMLResponse)
 def inicio(request: Request):
     par = parametros(request)
-    if (par["q"] or par["pagina"] > 1) and excedeu_limite(request):
+    filtros_ativos = any(par["filtros"].values())
+    pagina_inicial = not par["q"] and not filtros_ativos and par["pagina"] == 1 and "ordem" not in request.query_params
+    if not pagina_inicial and excedeu_limite(request):
         return modelos.TemplateResponse(
             request, "aviso.html",
-            contexto(request, titulo="Muitas consultas",
-                     mensagem="Você fez muitas consultas em pouco tempo. Aguarde um minuto e tente de novo."),
+            contexto(request, titulo="Muitas pesquisas seguidas",
+                     mensagem="Foram feitas muitas pesquisas em pouco tempo a partir desta conexão. Aguarde um minuto e tente de novo."),
             status_code=429,
         )
     con, indice = repo.conexao()
     if con is None:
         return indisponivel(request)
     try:
-        res = busca.pesquisar(con, indice, par["q"], par["modo"], par["filtros"], par["pagina"], repo.semantica_pronta)
-        nomes_temas = {r[0]: r[1] for r in con.execute("SELECT codigo, nome FROM temas")}
         info = info_base(con)
+        if pagina_inicial:
+            temas = con.execute(
+                "SELECT t.codigo, t.nome, count(at.id) AS n FROM temas t "
+                "LEFT JOIN ato_temas at ON at.tema = t.codigo GROUP BY t.codigo ORDER BY n DESC, t.ordem").fetchall()
+            sem_tema = con.execute("SELECT count(*) FROM atos WHERE id NOT IN (SELECT id FROM ato_temas)").fetchone()[0]
+            ids = [r[0] for r in con.execute("SELECT id FROM atos ORDER BY data_diario DESC, id DESC LIMIT 6")]
+            recentes = busca.carregar_itens(con, ids, "", False)
+            return modelos.TemplateResponse(request, "home.html", contexto(
+                request, info=info, temas=temas, sem_tema=sem_tema, recentes=recentes))
+        res = busca.pesquisar(con, indice, par["q"], par["modo"], par["filtros"], par["pagina"], repo.semantica_pronta)
     finally:
         con.close()
     paginas = max(1, -(-res.total // busca.POR_PAGINA))
-    anos = sorted(res.facetas.get("ano", []))[-40:]
-    return modelos.TemplateResponse(request, "inicio.html", contexto(
-        request, par=par, res=res, url=construtor_url(par), modos=MODOS, paginas=paginas,
-        anos=anos, max_ano=max([c for _, c in anos] or [1]), nomes_temas=nomes_temas, info=info,
-        por_pagina=busca.POR_PAGINA,
+    return modelos.TemplateResponse(request, "resultados.html", contexto(
+        request, par=par, res=res, url=construtor_url(par), modos=MODOS, paginas=paginas, info=info,
+        filtros_ativos=filtros_ativos, busca_no_topo=True, q_topo=par["q"],
     ))
 
 
@@ -254,7 +299,7 @@ def ato(request: Request, id_ato: int):
         m = re.search(r"/atos/documento/(\d+)", r.get("link") or "")
         r["interno"] = f"/ato/{m.group(1)}" if m else ""
     return modelos.TemplateResponse(request, "ato.html", contexto(
-        request, a=a, temas=temas, texto_html=Markup(md.render(a["texto"] or "")), info=info,
+        request, a=a, temas=temas, texto_html=Markup(md.render(a["texto"] or "")), info=info, busca_no_topo=True,
     ))
 
 
@@ -271,7 +316,8 @@ def temas(request: Request):
         info = info_base(con)
     finally:
         con.close()
-    return modelos.TemplateResponse(request, "temas.html", contexto(request, lista=lista, sem_tema=sem_tema, info=info))
+    return modelos.TemplateResponse(request, "temas.html", contexto(
+        request, lista=lista, sem_tema=sem_tema, info=info, pagina_atual="temas", busca_no_topo=True))
 
 
 @app.get("/sobre", response_class=HTMLResponse)
@@ -289,7 +335,8 @@ def sobre(request: Request):
         finally:
             con.close()
     return modelos.TemplateResponse(request, "sobre.html", contexto(
-        request, info=info, rel=rel, modelo=config.MODELO_EMBEDDINGS, semantica_pronta=repo.semantica_pronta))
+        request, info=info, rel=rel, modelo=config.MODELO_EMBEDDINGS, semantica_pronta=repo.semantica_pronta,
+        pagina_atual="sobre", busca_no_topo=True))
 
 
 @app.get("/api/pesquisa")

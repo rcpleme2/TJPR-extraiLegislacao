@@ -1,0 +1,8 @@
+<li class="resultado">
+  <h3><a href="/ato/{{ it.id }}">{{ it.tipo }} {{ it.numero }}</a></h3>
+  <p class="meta">{{ it.origem | nome_proprio }}{% if it.data_diario %}, {{ it.data_diario | data_br }}{% endif %}{% if it.situacao %}, <span class="sit-{{ it.situacao | classe_sit }}">{{ it.situacao | rotulo_sit }}</span>{% endif %}</p>
+  {% if it.ementa and it.ementa|length > 30 %}<p class="ementa">{{ it.ementa | truncate(320) }}</p>
+  {% elif it.documento %}<p class="ementa">{{ it.documento | truncate(320) }}</p>{% endif %}
+  {% if it.trecho %}<p class="trecho">{{ it.trecho | realce }}</p>{% endif %}
+  {% if it.temas %}<p class="temas">Temas: {% for cod, nome in it.temas %}<a href="/?tema={{ cod }}">{{ nome }}</a>{% if not loop.last %}, {% endif %}{% endfor %}</p>{% endif %}
+</li>

@@ -1,49 +1,50 @@
 {% extends "base.html" %}
 {% block titulo %}{{ a.tipo }} {{ a.numero }} · Atos normativos do TJPR{% endblock %}
 {% block conteudo %}
-<p class="voltar"><a href="/">← Voltar à pesquisa</a></p>
+<p class="voltar"><a href="/">Nova pesquisa</a></p>
 <article class="ato">
-  <header>
-    <p class="ato-origem">{{ a.origem }}</p>
-    <h1>{{ a.tipo }} {{ a.numero }}</h1>
-    {% if a.ementa and a.ementa|length > 30 %}<p class="ato-ementa">{{ a.ementa }}</p>{% endif %}
-    {% if temas %}
-    <div class="item-temas">
-      {% for cod, nome, origem in temas %}<a class="tema" href="/?tema={{ cod }}" title="Classificado por {{ 'Copilot' if origem == 'copilot' else origem }}">{{ nome }}</a>{% endfor %}
-    </div>
-    {% endif %}
-  </header>
+  <p class="origem">{{ a.origem | nome_proprio }}</p>
+  <h1>{{ a.tipo }} {{ a.numero }}</h1>
+  <p class="meta">
+    {% if a.situacao %}<span class="sit-{{ a.situacao | classe_sit }}">{{ a.situacao | rotulo_sit }}</span>{% endif %}{% if a.data_diario %}, publicado em {{ a.data_diario | data_br }}{% if a.diario %} no e-DJ nº {{ a.diario }}{% endif %}{% endif %}
+  </p>
+  <p class="acoes"><a class="botao" href="{{ a.fonte }}" rel="noopener">Abrir no site do TJPR</a></p>
 
-  <dl class="ficha">
-    <div><dt>Situação</dt><dd><span class="sit sit-{{ (a.situacao or '')|lower }}">{{ a.situacao }}</span></dd></div>
-    {% if a.data_diario %}<div><dt>Data do diário</dt><dd>{{ a.data_diario | data_br }}{% if a.diario %} · e-DJ nº {{ a.diario }}{% endif %}</dd></div>{% endif %}
-    {% if a.tipo_ato %}<div><dt>Ato</dt><dd>{{ a.tipo_ato }}</dd></div>{% endif %}
-    {% if a.documento %}<div><dt>Documento</dt><dd>{{ a.documento }}</dd></div>{% endif %}
-    {% if a.palavras_chave %}<div class="largo"><dt>Assunto</dt><dd><ul class="termos">{% for t in a.palavras_chave %}<li>{{ t }}</li>{% endfor %}</ul></dd></div>{% endif %}
-    <div class="largo"><dt>Fonte oficial</dt><dd><a href="{{ a.fonte }}" rel="noopener">{{ a.fonte }}</a></dd></div>
-  </dl>
+  {% if a.ementa and a.ementa|length > 30 %}<p class="ementa-ato">{{ a.ementa }}</p>
+  {% elif a.documento %}<p class="ementa-ato">{{ a.documento }}</p>{% endif %}
+  {% if temas %}<p class="temas">Temas: {% for cod, nome, origem in temas %}<a href="/?tema={{ cod }}" title="Classificado por {{ 'Copilot' if origem == 'copilot' else origem }}">{{ nome }}</a>{% if not loop.last %}, {% endif %}{% endfor %}</p>{% endif %}
 
-  {% if a.anexos %}
-  <section class="bloco">
-    <h2>Anexos</h2>
-    <ul>{% for x in a.anexos %}<li><a href="{{ x.link }}" rel="noopener nofollow">{{ x.nome }}</a></li>{% endfor %}</ul>
-  </section>
-  {% endif %}
-  {% if a.referencias %}
-  <section class="bloco">
-    <h2>Referências</h2>
+  <details class="detalhes">
+    <summary>Mais informações</summary>
+    <dl>
+      {% if a.palavras_chave %}<dt>Assunto</dt><dd>{{ a.palavras_chave | join("; ") }}</dd>{% endif %}
+      {% if a.documento %}<dt>Documento</dt><dd>{{ a.documento }}</dd>{% endif %}
+      {% if a.tipo_ato %}<dt>Natureza</dt><dd>Ato {{ a.tipo_ato | lower }}</dd>{% endif %}
+      <dt>Origem</dt><dd>{{ a.origem }}</dd>
+      <dt>Endereço oficial</dt><dd><a href="{{ a.fonte }}" rel="noopener">{{ a.fonte }}</a></dd>
+    </dl>
+  </details>
+
+  {% if a.referencias or a.anexos %}
+  <div class="relacionados">
+    {% if a.referencias %}
+    <h2>Atos relacionados</h2>
     <ul>{% for r in a.referencias %}
-      <li><strong>{{ r.tipo }}:</strong>
+      <li>{{ r.tipo }}:
         {% if r.interno %}<a href="{{ r.interno }}">{{ r.descricao }}</a>
         {% elif r.link %}<a href="{{ r.link }}" rel="noopener nofollow">{{ r.descricao }}</a>
         {% else %}{{ r.descricao }}{% endif %}</li>
     {% endfor %}</ul>
-  </section>
+    {% endif %}
+    {% if a.anexos %}
+    <h2>Anexos</h2>
+    <ul>{% for x in a.anexos %}<li><a href="{{ x.link }}" rel="noopener nofollow">{{ x.nome }}</a></li>{% endfor %}</ul>
+    {% endif %}
+  </div>
   {% endif %}
 
-  <section class="texto">
-    <h2>Texto</h2>
-    {% if a.texto %}{{ texto_html }}{% else %}<p>Texto não disponível; consulte a fonte oficial.</p>{% endif %}
+  <section class="texto" aria-label="Texto do ato">
+    {% if a.texto %}{{ texto_html }}{% else %}<p>O texto deste ato não está disponível aqui. <a href="{{ a.fonte }}" rel="noopener">Abra no site do TJPR</a>.</p>{% endif %}
   </section>
 </article>
 {% endblock %}

@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block conteudo %}
+<section class="abertura">
+  <h1>Encontre um ato normativo do TJPR</h1>
+  <form action="/" method="get" role="search">
+    <label class="sr" for="q">Pesquisar atos</label>
+    <div class="caixa">
+      <input id="q" name="q" type="search" maxlength="300" autofocus
+             placeholder="Assunto, número ou trecho, como teletrabalho ou 397/2023">
+      <button type="submit">Pesquisar</button>
+    </div>
+  </form>
+  <p class="exemplos">Experimente:
+    <a href="/?q=teletrabalho">teletrabalho</a>
+    <a href="/?q=plant%C3%A3o+judici%C3%A1rio">plantão judiciário</a>
+    <a href="/?q=suspens%C3%A3o+de+prazos">suspensão de prazos</a>
+    <a href="/?q=registro+de+im%C3%B3veis">registro de imóveis</a>
+  </p>
+  <p class="situacao-base">{{ "{:,}".format(info.total).replace(",", ".") }} atos na base{% if info.atualizado %}, verificada em {{ info.atualizado }}{% endif %}.</p>
+</section>
+
+<section class="secao">
+  <h2>Por tema</h2>
+  <ul class="lista-temas">
+    {% for t in temas if t.n %}
+    <li><a href="/?tema={{ t.codigo }}"><span>{{ t.nome }}</span><em>{{ "{:,}".format(t.n).replace(",", ".") }}</em></a></li>
+    {% endfor %}
+  </ul>
+  {% if sem_tema %}<p class="nota">{{ "{:,}".format(sem_tema).replace(",", ".") }} atos ainda não têm tema; eles aparecem normalmente na pesquisa.</p>{% endif %}
+</section>
+
+<section class="secao">
+  <h2>Publicados recentemente</h2>
+  <ol class="resultados">
+    {% for it in recentes %}{% include "_resultado.html" %}{% endfor %}
+  </ol>
+  <p><a href="/?ordem=recentes">Ver todos, do mais recente ao mais antigo</a></p>
+</section>
+{% endblock %}

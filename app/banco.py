@@ -46,6 +46,15 @@ COLUNAS = [
 ]
 
 
+SEM_SITUACAO = "SEM SITUAÇÃO DEFINIDA"
+
+
+def normalizar_situacao(valor) -> str:
+    """O site devolve vazio, None ou "-1" para atos sem situação; todos viram SEM SITUAÇÃO DEFINIDA."""
+    v = str(valor or "").strip().upper()
+    return SEM_SITUACAO if v in ("", "-1", "NONE") else v
+
+
 def agora() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
@@ -73,6 +82,7 @@ def gravar_ato(con: sqlite3.Connection, ato: dict, inclusao: str) -> str:
 
     Devolve 'novo', 'alterado' ou 'igual'. O índice de texto é refeito no fim com reconstruir_fts().
     """
+    ato = {**ato, "situacao": normalizar_situacao(ato.get("situacao"))}
     valores = {
         c: (json.dumps(ato[c], ensure_ascii=False) if c in ("palavras_chave", "anexos", "referencias") else ato.get(c))
         for c in COLUNAS

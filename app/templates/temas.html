@@ -1,16 +1,17 @@
 {% extends "base.html" %}
 {% block titulo %}Temas · Atos normativos do TJPR{% endblock %}
 {% block conteudo %}
-<h1 class="titulo-pagina">Temas</h1>
-<p class="intro">Cada ato recebe de um a três temas. Clique em um tema para ver os atos.
-  {% if sem_tema %}{{ "{:,}".format(sem_tema).replace(",", ".") }} ato(s) ainda não foram classificados (<a href="/?tema=_sem_tema">ver</a>).{% endif %}</p>
-<ul class="cartoes">
+<div class="pagina">
+<h1>Temas</h1>
+<p>Cada ato recebe de um a três temas, escolhidos por modelos de linguagem a partir da ementa e do texto. A classificação pode ter erros.
+  {% if sem_tema %}{{ "{:,}".format(sem_tema).replace(",", ".") }} atos ainda não foram classificados (<a href="/?tema=_sem_tema">ver quais</a>).{% endif %}</p>
+<ul class="temas-completos">
   {% for t in lista %}
-  <li><a href="/?tema={{ t.codigo }}">
-    <strong>{{ t.nome }}</strong>
-    <span>{{ t.descricao }}</span>
-    <em>{{ "{:,}".format(t.n).replace(",", ".") }} ato(s)</em>
-  </a></li>
+  <li>
+    <a href="/?tema={{ t.codigo }}">{{ t.nome }}</a> <span class="contagem-tema">{{ "{:,}".format(t.n).replace(",", ".") }} {{ "ato" if t.n == 1 else "atos" }}</span>
+    <p>{{ t.descricao }}</p>
+  </li>
   {% endfor %}
 </ul>
+</div>
 {% endblock %}
